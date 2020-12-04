@@ -55,13 +55,7 @@ func NewPAD(ad AssocData, signKey sign.PrivateKey, vrfKey vrf.PrivateKey, len ui
 func (pad *PAD) signTreeRoot(epoch uint64) {
 	var prevHash []byte
 	if pad.latestSTR == nil {
-		var err error
 		prevHash = hashed.RandSlice()
-		if err != nil {
-			// panic here since if there is an error, it
-			// will break the PAD.
-			panic(err)
-		}
 	} else {
 		prevHash = hashed.Digest(pad.latestSTR.Signature)
 	}
