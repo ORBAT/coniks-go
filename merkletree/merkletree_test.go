@@ -285,4 +285,9 @@ func TestTreeClone(t *testing.T) {
 	if !bytes.Equal(ap.Leaf.Value, []byte("value2")) {
 		t.Error(key2, "value mismatch\n")
 	}
+
+	ap = m1.Get(index2)
+	if ap.ProofType() != ProofOfAbsence {
+		t.Error("wasn't supposed to find this in the old tree")
+	}
 }

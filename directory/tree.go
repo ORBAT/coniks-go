@@ -2,8 +2,9 @@ package directory
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"testing"
-	"time"
 
 	"github.com/ORBAT/cloniks/crypto"
 	"github.com/ORBAT/cloniks/crypto/sign"
@@ -12,63 +13,43 @@ import (
 	"github.com/ORBAT/cloniks/protocol"
 )
 
-// A Tree maintains the underlying persistent
-// authenticated dictionary (PAD)
-// and its configuration (i.e. update interval, VRF public key, etc.).
-//
-// The current implementation of Tree also keeps track of temporary bindings (TBs) that can be used
-// to prove the inclusion of a value that was added in the current epoch.
+// A Tree is an authenticated key/value dictionary based on a prefix Merkle tree.
 type Tree struct {
-	pad      *merkletree.PAD
-	tbs      map[string]*TemporaryBinding
-	policies *Config
+	pad    *merkletree.PAD
+	tbs    map[string]*TemporaryBinding
+	config *Config
 }
 
 // New constructs a new Tree given the key server's PAD
-// policies (i.e. epDeadline, vrfKey).
+// config (i.e. epDeadline, vrfKey).
 //
 // signKey is the private key the key server uses to generate signed tree
 // roots (STRs) and TBs.
 // dirSize indicates the number of PAD snapshots the server keeps in memory.
-func New(epDeadline time.Duration, vrfKey vrf.PrivateKey,
-	signKey sign.PrivateKey, dirSize uint64) (*Tree, error) {
-	// FIXME: see #110
+func New(vrfKey vrf.PrivateKey, signKey sign.PrivateKey, dirSize uint64) (*Tree, error) {
 	d := new(Tree)
 	vrfPublicKey, ok := vrfKey.Public()
 	if !ok {
 		return nil, vrf.ErrGetPubKey
 	}
-	d.policies = NewConfig(epDeadline, vrfPublicKey)
-	pad, err := merkletree.NewPAD(d.policies, signKey, vrfKey, dirSize)
+	d.config = NewConfig(vrfPublicKey)
+	pad, err := merkletree.NewPAD(d.config, signKey, vrfKey, dirSize)
 	if err != nil {
 		panic(err)
 	}
 	d.pad = pad
-		d.tbs = make(map[string]*TemporaryBinding)
+	d.tbs = make(map[string]*TemporaryBinding)
 	return d, nil
 }
 
-// Update creates a new PAD snapshot updating this Tree.
-// Update() is called at the end of a CONIKS epoch. This implementation
-// also deletes all issued TBs for the ending epoch as their
-// corresponding mappings will have been inserted into the PAD.
+// Update creates a new PAD snapshot updating this Tree. Deletes all issued TBs for the ending epoch
+// as their corresponding mappings will have been inserted into the PAD.
 func (d *Tree) Update() {
-	d.pad.Update(d.policies)
+	d.pad.Update(d.config)
 	// clear issued temporary bindings
 	for key := range d.tbs {
 		delete(d.tbs, key)
 	}
-}
-
-// SetPolicies sets this Tree's epoch deadline, which will be used
-// in the next epoch.
-func (d *Tree) SetPolicies(epDeadline time.Duration) {
-	d.policies = NewConfig(epDeadline, d.policies.VrfPublicKey)
-}
-
-// UpdateInterval returns this Tree's current update interval
-func (d *Tree) UpdateInterval() time.Duration {
-	return GetConfig(d.pad.LatestSTR()).UpdateInterval
 }
 
 // LatestSTR returns this Tree's latest STR.
@@ -76,73 +57,62 @@ func (d *Tree) LatestSTR() *SignedTreeRoot {
 	return NewDirSTR(d.pad.LatestSTR())
 }
 
-// NewTB creates a new temporary binding for the given name-to-key mapping.
-// NewTB() computes the private index for the name, and
-// digitally signs the (index, key, latest STR signature) tuple.
-func (d *Tree) NewTB(name string, key []byte) *TemporaryBinding {
+// newTB creates a new temporary binding for the given name-to-value mapping.
+// newTB() computes the private index for the name, and
+// digitally signs the (index, value, latest STR signature) tuple.
+func (d *Tree) newTB(name string, value []byte) *TemporaryBinding {
 	index := d.pad.Index(name)
 	return &TemporaryBinding{
 		Index:     index,
-		Value:     key,
-		Signature: d.pad.Sign(d.LatestSTR().Signature, index, key),
+		Value:     value,
+		Signature: d.pad.Sign(d.LatestSTR().Signature, index, value),
 	}
 }
 
-// Register inserts the username-to-key mapping contained in a
-// RegistrationRequest req received from a CONIKS client
-// into this Tree, and returns a protocol.Response.
-// The response (which also includes the error code) is supposed to
-// be sent back to the client.
+var ErrNoKeyOrValue = errors.New("no key or value provided")
+
+type RegistrationResponse struct {
+	AuthPath    *merkletree.AuthenticationPath
+	TempBinding *TemporaryBinding
+	Root        *SignedTreeRoot
+}
+
+// Register a new key/value mapping in this Tree. Inserts the new mapping into a pending version
+// of the directory so it can be included in the snapshot taken at the end of the latest epoch, and
+// returns a proof of absence for the value and a TemporaryBinding that can be used to prove that
+// the Tree has promised to include the key in the next epoch.
 //
-// A request without a username or without a public key is considered
-// malformed, and causes Register() to return a
-// message.NewErrorResponse(ErrMalformedMessage).
-// Register() inserts the new mapping in req
-// into a pending version of the directory so it can be included in the
-// snapshot taken at the end of the latest epoch, and returns a
-// message.NewRegistrationProof(ap=proof of absence, str, tb, ReqSuccess)
-// if this operation succeeds.
-// Otherwise, if the username already exists, Register() returns a
-// message.NewRegistrationProof(ap=proof of inclusion, str, nil,
-// ReqNameExisted). ap will be a proof of absence with a non-nil
-// TB, if the username is still pending inclusion in the next directory
-// snapshot.
-// In any case, str is the signed tree root for the latest epoch.
-// If Register() encounters an internal error at any point, it returns
-// a message.NewErrorResponse(ErrDirectory).
-func (d *Tree) Register(req *RegistrationRequest) *Response {
-	// make sure the request is well-formed
-	if len(req.Username) <= 0 || len(req.Key) <= 0 {
-		return NewErrorResponse(protocol.ErrMalformedMessage)
+// If the key already exists, returns an ErrKeyExists and proof (or if the key was in the current
+// temporary bindings, a proof of current absence + non-nil TemporaryBinding).
+func (d *Tree) Register(key string, value []byte) (resp RegistrationResponse, err error) {
+	if len(key) == 0 || len(value) == 0 {
+		return resp, ErrNoKeyOrValue
 	}
 
-	// check whether the name already exists
-	// in the directory before we register
-	ap, err := d.pad.Lookup(req.Username)
+	// check if key already exists
+	resp.AuthPath, err = d.pad.Lookup(key)
 	if err != nil {
-		return NewErrorResponse(protocol.ErrDirectory)
-	}
-	if bytes.Equal(ap.LookupIndex, ap.Leaf.Index) {
-		return NewRegistrationProof(ap, d.LatestSTR(), nil, protocol.ReqNameExisted)
+		panic(fmt.Errorf("lookup in current epoch should never fail but got: %w", err))
 	}
 
-	var tb *TemporaryBinding
-
-	// also check the temporary bindings array
-	// currently the server allows only one registration/key change per epoch
-	if tb = d.tbs[req.Username]; tb != nil {
-		return NewRegistrationProof(ap, d.LatestSTR(), tb, protocol.ReqNameExisted)
-	}
-	tb = d.NewTB(req.Username, req.Key)
-
-	if err = d.pad.Set(req.Username, req.Key); err != nil {
-		return NewErrorResponse(protocol.ErrDirectory)
+	if resp.AuthPath.ProofType() == merkletree.ProofOfInclusion {
+		return resp, ErrKeyExists(key)
 	}
 
-	if tb != nil {
-		d.tbs[req.Username] = tb
+	// check temporary bindings too in case the key was registered in this epoch
+	if resp.TempBinding = d.tbs[key]; resp.TempBinding != nil {
+		return resp, ErrKeyExists(key)
 	}
-	return NewRegistrationProof(ap, d.LatestSTR(), tb, protocol.ReqSuccess)
+
+	resp.TempBinding = d.newTB(key, value)
+	if err := d.pad.Set(key, value); err != nil {
+		resp.TempBinding = nil
+		return resp, fmt.Errorf("setting value in PAD: %w", err)
+	}
+
+	d.tbs[key] = resp.TempBinding
+
+	return
 }
 
 // KeyLookup gets the public key for the username indicated in the
@@ -329,10 +299,33 @@ func (d *Tree) GetSTRHistory(req *STRHistoryRequest) *Response {
 func NewTestTree(t *testing.T) *Tree {
 	vrfKey := crypto.NewStaticTestVRFKey()
 	signKey := crypto.NewStaticTestSigningKey()
-	d, err := New(1, vrfKey, signKey, 10)
+	d, err := New(vrfKey, signKey, 10)
 	if err != nil {
 		panic(err)
 	}
-	d.pad = merkletree.StaticPAD(t, d.policies)
+	d.pad = merkletree.StaticPAD(t, d.config)
 	return d
+}
+
+type ErrKeyExists string
+
+func (e ErrKeyExists) Error() string {
+	return "key already exists: " + string(e)
+}
+
+func (ErrKeyExists) Is(target error) bool {
+	if target == nil {
+		return false
+	}
+	_, ok := target.(interface{ IsKeyExistsError() })
+	return ok
+}
+
+func (ErrKeyExists) IsKeyExistsError() {}
+
+func IsKeyExistsError(e error) bool {
+	if e == nil {
+		return false
+	}
+	return errors.Is(e, ErrKeyExists(""))
 }

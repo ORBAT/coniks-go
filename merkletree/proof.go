@@ -48,11 +48,11 @@ func (n *ProofNode) hash(treeNonce []byte) []byte {
 	} else {
 		// user leaf node
 		return hashed.Digest(
-			emptyLeafBs,              // K_leaf
+			emptyLeafBs,                         // K_leaf
 			[]byte(treeNonce),                   // K_n
 			[]byte(n.Index),                     // i
 			[]byte(conv.UInt32ToBytes(n.Level)), // l
-			[]byte(n.Commitment.Value),          // commit(key|| value)
+			[]byte(n.Commitment.Hash),           // commit(key|| value)
 		)
 	}
 }
@@ -96,6 +96,8 @@ func (ap *AuthenticationPath) authPathHash() []byte {
 	return hash
 }
 
+// Verify the proof for a key/value binding.
+//
 // Verify first compares the lookup index with the leaf index.
 // It expects the lookup index and the leaf index match in the
 // first l bits with l is the Level of the proof node if ap is

@@ -33,7 +33,7 @@ type PAD struct {
 // NewPAD creates new PAD with the given associated data ad,
 // signing key pair signKey, VRF key pair vrfKey, and the
 // maximum capacity for the snapshot cache len.
-func NewPAD(ad AssocData, signKey sign.PrivateKey, vrfKey vrf.PrivateKey, len uint64) (*PAD, error) {
+func NewPAD(ad AssocData, signKey sign.PrivateKey, vrfKey vrf.PrivateKey, numSnapshots uint64) (*PAD, error) {
 	if ad == nil {
 		panic("[merkletree] PAD must be created with non-nil associated data")
 	}
@@ -46,8 +46,8 @@ func NewPAD(ad AssocData, signKey sign.PrivateKey, vrfKey vrf.PrivateKey, len ui
 		return nil, err
 	}
 	pad.ad = ad
-	pad.snapshots = make(map[uint64]*SignedTreeRoot, len)
-	pad.loadedEpochs = make([]uint64, 0, len)
+	pad.snapshots = make(map[uint64]*SignedTreeRoot, numSnapshots)
+	pad.loadedEpochs = make([]uint64, 0, numSnapshots)
 	pad.updateInternal(nil, 0)
 	return pad, nil
 }

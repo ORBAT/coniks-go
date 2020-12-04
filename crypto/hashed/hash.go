@@ -53,45 +53,41 @@ func RandSlice() []byte {
 	return frand.Bytes(32)
 }
 
-// Commit can be used to create a cryptographic commit to some value (use
-// NewCommit() for this purpose.
+// Commit can be used to create a cryptographic commit to some value. See NewCommit
 type Commit struct {
 	// Salt is a cryptographic salt which will be hashed in addition
 	// to the value.
 	Salt []byte
-	// Value is the actual value to commit to.
-	Value []byte
+	// Hash is the hash of the committed value and the salt
+	Hash []byte
 }
 
 // CommitHashCtx is the blake3 context for commits.
 // It can't be changed between versions, otherwise commits will not verify between versions
 const CommitHashCtx = "clonics commit v1"
 
-// NewCommit creates a new cryptographic commit to the passed byte slices
-// stuff (which won't be mutated). It creates a random salt before
-// committing to the values.
-func NewCommit(stuff ...[]byte) Commit {
+// NewCommit creates a new cryptographic commitment to the given values (which won't be mutated)
+func NewCommit(values ...[]byte) Commit {
 	salt := RandSlice()
-	commitHash := CommitHash(stuff, salt)
+	commitHash := CommitHash(values, salt)
 	return Commit{
-		Salt:  salt,
-		Value: commitHash,
+		Salt: salt,
+		Hash: commitHash,
 	}
 }
 
-func CommitHash(stuff [][]byte, salt []byte) []byte {
+func CommitHash(values [][]byte, salt []byte) []byte {
 	h := NewKeyed(CommitHashCtx, salt)
-	for _, bs := range stuff {
+	for _, bs := range values {
 		_, _ = h.Write(bs)
 	}
 	commitHash := h.Sum(make([]byte, 0, HashSizeByte))
 	return commitHash
 }
 
-// Verify verifies that the underlying commit c was a commit to the passed
-// byte slices stuff (which won't be mutated).
-func (c Commit) Verify(stuff ...[]byte) bool {
-	return bytes.Equal(c.Value, CommitHash(stuff, c.Salt))
+// Verify verifies that the underlying commit c was a commitment to the given values
+func (c Commit) Verify(values ...[]byte) bool {
+	return bytes.Equal(c.Hash, CommitHash(values, c.Salt))
 }
 
 func newHasher() interface{} {

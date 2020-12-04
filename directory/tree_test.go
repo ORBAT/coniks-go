@@ -3,36 +3,13 @@ package directory
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ORBAT/cloniks/crypto"
+	"github.com/ORBAT/cloniks/merkletree"
 	"github.com/ORBAT/cloniks/protocol"
 )
-
-func TestPoliciesChanges(t *testing.T) {
-	d := NewTestTree(t)
-	if p := d.LatestSTR().Policies.UpdateInterval; p != 1 {
-		t.Fatal("Unexpected policies", "want", 1, "got", p)
-	}
-
-	// change the policies
-	d.SetPolicies(2)
-	d.Update()
-	// expect the policies doesn't change yet
-	if p := d.LatestSTR().Policies.UpdateInterval; p != 1 {
-		t.Fatal("Unexpected policies", "want", 1, "got", p)
-	}
-
-	d.Update()
-	// expect the new policies
-	if p := d.LatestSTR().Policies.UpdateInterval; p != 2 {
-		t.Fatal("Unexpected policies", "want", 2, "got", p)
-	}
-
-	p0 := GetConfig(d.pad.GetSTR(0)).UpdateInterval
-	p1 := GetConfig(d.pad.GetSTR(1)).UpdateInterval
-	p2 := GetConfig(d.pad.GetSTR(2)).UpdateInterval
-	if p0 != 1 || p1 != 1 || p2 != 2 {
-		t.Fatal("Maybe the STR's policies were malformed")
-	}
-}
 
 func TestDirectoryKeyLookupInEpochBadEpoch(t *testing.T) {
 	d := NewTestTree(t)
@@ -100,5 +77,55 @@ func TestBadRequestGetSTRHistory(t *testing.T) {
 		if res.Error != tc.want {
 			t.Errorf("Expect ErrMalformedMessage for %s", tc.name)
 		}
+	}
+}
+
+
+var signKey = crypto.NewStaticTestSigningKey()
+var vrfKey = crypto.NewStaticTestVRFKey()
+func newEmptyTree(t *testing.T) *Tree {
+	tree, err := New(vrfKey, signKey, 10)
+	require.NoError(t, err, "create test tree")
+	return tree
+}
+
+func newTreeWithKeys(keys ...string) func(t *testing.T) *Tree {
+	return func(t *testing.T) *Tree {
+		tree := newEmptyTree(t)
+		for _, key := range keys {
+			require.NoError(t, tree.pad.Set(key, []byte("value "+key)))
+			tree.Update()
+		}
+		return tree
+	}
+}
+
+func TestTree_Register(t *testing.T) {
+	type args struct {
+		key   string
+		value []byte
+	}
+	tests := []struct {
+		name     string
+		newTree func(*testing.T) *Tree
+		args     args
+		wantProof merkletree.ProofType
+		wantErr  bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := tt.newTree(t)
+			gotResp, err := d.Register(tt.args.key, tt.args.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Register() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			require.NotNil(t, gotResp, "should always get a RegistrationResponse")
+
+			assert.Equal(t, tt.wantProof, gotResp.AuthPath.ProofType())
+		})
 	}
 }

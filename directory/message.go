@@ -27,7 +27,7 @@ type Request struct {
 // public key as bytes that a CONIKS client sends to a CONIKS directory
 // to register a new entry (i.e. name-to-key binding).
 // Optionally, the client can include the user's key
-// change and visibility policies as boolean values in the
+// change and visibility config as boolean values in the
 // request. These flags are currently unused by the CONIKS protocols.
 //
 // The response to a successful request is a DirectoryProof with a TB for

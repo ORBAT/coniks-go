@@ -93,7 +93,7 @@ func (m *MerkleTree) Get(lookupIndex []byte) *AuthenticationPath {
 			IsEmpty: false,
 			Commitment: pNode.commitment,
 		}
-		if bytes.Equal(nodePointer.(*userLeafNode).index, lookupIndex) {
+		if bytes.Equal(pNode.index, lookupIndex) {
 			return authPath
 		}
 		// reached a different leaf with a matching prefix
@@ -119,6 +119,7 @@ func (m *MerkleTree) Get(lookupIndex []byte) *AuthenticationPath {
 // commitment are replaced with the new value and newly generated
 // commitment.
 func (m *MerkleTree) Set(index []byte, key string, value []byte) error {
+	// TODO: see todo note in userLeafNode
 	commitment := hashed.NewCommit([]byte(key), value)
 	toAdd := userLeafNode{
 		key:        key,

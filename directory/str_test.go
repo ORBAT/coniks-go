@@ -23,7 +23,7 @@ func TestVerifyHashChain(t *testing.T) {
 	vrfPublicKey, _ := vrfKey.Public()
 	pk := signKey.Public()
 
-	policies := NewConfig(10, vrfPublicKey)
+	policies := NewConfig(vrfPublicKey)
 	pad, err := merkletree.NewPAD(policies, signKey, vrfKey, 1)
 	if err != nil {
 		panic(err)

@@ -96,11 +96,11 @@ func (n *interiorNode) hash(m *MerkleTree) []byte {
 var emptyLeafBs = []byte{LeafIdentifier}
 func (n *userLeafNode) hash(m *MerkleTree) []byte {
 	return hashed.Digest(
-		emptyLeafBs,                               // K_leaf
+		emptyLeafBs,                         // K_leaf
 		[]byte(m.nonce),                     // K_n
 		[]byte(n.index),                     // i
 		[]byte(conv.UInt32ToBytes(n.level)), // l
-		[]byte(n.commitment.Value),          // commit(key|| value)
+		[]byte(n.commitment.Hash),           // commit(key|| value)
 	)
 }
 
