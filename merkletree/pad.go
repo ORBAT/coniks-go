@@ -16,11 +16,10 @@ var (
 	ErrSTRNotFound = errors.New("[merkletree] STR not found")
 )
 
-// A PAD represents a persistent authenticated dictionary. It
-
-// It includes the underlying MerkleTree, cached snapshots,
-// the latest SignedTreeRoot, two key pairs for signing and VRF
-// computation, and additional developer-specified AssocData.
+// A PAD is a persistent authenticated dictionary of key/value bindings.
+//
+// It includes the underlying MerkleTree, cached snapshots, the latest SignedTreeRoot, two key pairs
+// for signing and VRF computation, and additional developer-specified AssocData.
 type PAD struct {
 	signKey      sign.PrivateKey
 	vrfKey       vrf.PrivateKey
