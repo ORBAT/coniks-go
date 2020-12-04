@@ -3,7 +3,7 @@ package merkletree
 import (
 	"testing"
 
-	"github.com/coniks-sys/coniks-go/crypto"
+	"github.com/ORBAT/cloniks/crypto"
 )
 
 var keyPrefix = "key"

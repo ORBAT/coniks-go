@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/coniks-sys/coniks-go/crypto/sign"
-	"github.com/coniks-sys/coniks-go/crypto/vrf"
+	"github.com/ORBAT/cloniks/crypto/sign"
+	"github.com/ORBAT/cloniks/crypto/vrf"
 )
 
 var signKey sign.PrivateKey
@@ -33,7 +33,7 @@ type TestAd struct {
 	data string
 }
 
-func (t TestAd) Serialize() []byte {
+func (t TestAd) Bytes() []byte {
 	return []byte(t.data)
 }
 
@@ -237,16 +237,6 @@ func unMockRandReader(orig io.Reader) {
 	rand.Reader = orig
 }
 
-func TestNewPADErrorWhileCreatingTree(t *testing.T) {
-	origRand := mockRandReadWithErroringReader()
-	defer unMockRandReader(origRand)
-
-	pad, err := NewPAD(TestAd{""}, signKey, vrfKey, 3)
-	if err == nil || pad != nil {
-		t.Fatal("NewPad should return an error in case the tree creation failed")
-	}
-}
-
 func BenchmarkCreateLargePAD(b *testing.B) {
 	snapLen := uint64(10)
 	keyPrefix := "key"
@@ -294,7 +284,7 @@ func benchPADUpdate(b *testing.B, entries uint64) {
 	// Insert 1000 additional entries (as described in section 5.3):
 	var i uint64
 	for i = 0; i < 1000; i++ {
-		key := keyPrefix + string(i+entries)
+		key := keyPrefix + strconv.FormatUint(i+entries, 10)
 		value := append(valuePrefix, byte(i+entries))
 		if err := pad.Set(key, value); err != nil {
 			b.Fatal(err)
@@ -348,9 +338,9 @@ func benchPADLookup(b *testing.B, entries uint64) {
 		b.StopTimer()
 		var key string
 		if n < int(entries) {
-			key = keyPrefix + string(n)
+			key = keyPrefix + strconv.Itoa(n)
 		} else {
-			key = keyPrefix + string(n%int(entries))
+			key = keyPrefix + strconv.Itoa(n%int(entries))
 		}
 		b.StartTimer()
 		_, err := pad.Lookup(key)

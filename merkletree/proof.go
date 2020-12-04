@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/coniks-sys/coniks-go/crypto"
-	"github.com/coniks-sys/coniks-go/utils"
+	"github.com/ORBAT/cloniks/conv"
+	"github.com/ORBAT/cloniks/crypto/hashed"
 )
 
 var (
@@ -33,26 +33,26 @@ type ProofNode struct {
 	Index      []byte
 	Value      []byte
 	IsEmpty    bool
-	Commitment *crypto.Commit
+	Commitment hashed.Commit
 }
 
 func (n *ProofNode) hash(treeNonce []byte) []byte {
 	if n.IsEmpty {
 		// empty leaf node
-		return crypto.Digest(
-			[]byte{EmptyBranchIdentifier},        // K_empty
-			[]byte(treeNonce),                    // K_n
-			[]byte(n.Index),                      // i
-			[]byte(utils.UInt32ToBytes(n.Level)), // l
+		return hashed.Digest(
+			emptyBranchBs,       // K_empty
+			[]byte(treeNonce),                   // K_n
+			[]byte(n.Index),                     // i
+			[]byte(conv.UInt32ToBytes(n.Level)), // l
 		)
 	} else {
 		// user leaf node
-		return crypto.Digest(
-			[]byte{LeafIdentifier},               // K_leaf
-			[]byte(treeNonce),                    // K_n
-			[]byte(n.Index),                      // i
-			[]byte(utils.UInt32ToBytes(n.Level)), // l
-			[]byte(n.Commitment.Value),           // commit(key|| value)
+		return hashed.Digest(
+			emptyLeafBs,              // K_leaf
+			[]byte(treeNonce),                   // K_n
+			[]byte(n.Index),                     // i
+			[]byte(conv.UInt32ToBytes(n.Level)), // l
+			[]byte(n.Commitment.Value),          // commit(key|| value)
 		)
 	}
 }
@@ -67,31 +67,30 @@ const (
 	ProofOfInclusion
 )
 
-// AuthenticationPath is a pruned tree containing
-// the prefix path between the corresponding leaf node
-// (of type ProofNode) and the root. This is a proof
-// of inclusion or absence of requested index.
-// A proof of inclusion is when the leaf index
-// equals the lookup index.
+// AuthenticationPath is a proof of inclusion or absence of requested index. A proof of inclusion is
+// when the leaf node's index equals the lookup index.
 type AuthenticationPath struct {
 	TreeNonce   []byte
-	PrunedTree  [][crypto.HashSizeByte]byte
+	PrunedTree  [][hashed.HashSizeByte]byte
 	LookupIndex []byte
 	VrfProof    []byte
 	Leaf        *ProofNode
+
+	// proofType is used by ProofType() to memoize it.
+	// TODO: just calculate it up front.
 	proofType   ProofType
 }
 
 func (ap *AuthenticationPath) authPathHash() []byte {
 	hash := ap.Leaf.hash(ap.TreeNonce)
-	indexBits := utils.ToBits(ap.Leaf.Index)
+	indexBits := conv.ToBits(ap.Leaf.Index)
 	depth := ap.Leaf.Level
 	for depth > 0 {
 		depth -= 1
 		if indexBits[depth] { // right child
-			hash = crypto.Digest(ap.PrunedTree[depth][:], hash)
+			hash = hashed.Digest(ap.PrunedTree[depth][:], hash)
 		} else {
-			hash = crypto.Digest(hash, ap.PrunedTree[depth][:])
+			hash = hashed.Digest(hash, ap.PrunedTree[depth][:])
 		}
 	}
 	return hash
@@ -110,8 +109,8 @@ func (ap *AuthenticationPath) authPathHash() []byte {
 func (ap *AuthenticationPath) Verify(key, value, treeHash []byte) error {
 	if ap.ProofType() == ProofOfAbsence {
 		// Check if i and j match in the first l bits
-		indexBits := utils.ToBits(ap.Leaf.Index)
-		lookupIndexBits := utils.ToBits(ap.LookupIndex)
+		indexBits := conv.ToBits(ap.Leaf.Index)
+		lookupIndexBits := conv.ToBits(ap.LookupIndex)
 		for i := 0; i < int(ap.Leaf.Level); i++ {
 			if indexBits[i] != lookupIndexBits[i] {
 				return ErrIndicesMismatch

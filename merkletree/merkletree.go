@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/coniks-sys/coniks-go/crypto"
-	"github.com/coniks-sys/coniks-go/utils"
+	"github.com/ORBAT/cloniks/conv"
+	"github.com/ORBAT/cloniks/crypto/hashed"
 )
 
 var (
@@ -38,10 +38,7 @@ type MerkleTree struct {
 // and its children are two empty leaf nodes.
 func NewMerkleTree() (*MerkleTree, error) {
 	root := newInteriorNode(nil, 0, []bool{})
-	nonce, err := crypto.MakeRand()
-	if err != nil {
-		return nil, err
-	}
+	nonce := hashed.RandSlice()
 	m := &MerkleTree{
 		nonce: nonce,
 		root:  root,
@@ -49,10 +46,10 @@ func NewMerkleTree() (*MerkleTree, error) {
 	return m, nil
 }
 
-// Get returns an AuthenticationPath used as a proof
-// of inclusion/absence for the requested lookupIndex.
+// Get returns an AuthenticationPath used as a proof of inclusion/absence for the requested
+// lookupIndex.
 func (m *MerkleTree) Get(lookupIndex []byte) *AuthenticationPath {
-	lookupIndexBits := utils.ToBits(lookupIndex)
+	lookupIndexBits := conv.ToBits(lookupIndex)
 	depth := 0
 	var nodePointer merkleNode
 	nodePointer = m.root
@@ -62,17 +59,15 @@ func (m *MerkleTree) Get(lookupIndex []byte) *AuthenticationPath {
 		LookupIndex: lookupIndex,
 	}
 
-	for {
-		if _, ok := nodePointer.(*userLeafNode); ok {
-			// reached to a leaf node
-			break
+	searchLoop: for {
+		switch nodePointer.kind() {
+		case userLeafNodeKind, emptyNodeKind:
+			// reached a leaf node or an empty branch
+			break searchLoop
 		}
-		if _, ok := nodePointer.(*emptyNode); ok {
-			// reached to an empty branch
-			break
-		}
+
 		direction := lookupIndexBits[depth]
-		var hashArr [crypto.HashSizeByte]byte
+		var hashArr [hashed.HashSizeByte]byte
 		if direction {
 			copy(hashArr[:], nodePointer.(*interiorNode).leftHash)
 			nodePointer = nodePointer.(*interiorNode).rightChild
@@ -87,18 +82,16 @@ func (m *MerkleTree) Get(lookupIndex []byte) *AuthenticationPath {
 	if nodePointer == nil {
 		panic(ErrInvalidTree)
 	}
-	switch nodePointer.(type) {
-	case *userLeafNode:
+
+	switch nodePointer.kind() {
+	case userLeafNodeKind:
 		pNode := nodePointer.(*userLeafNode)
 		authPath.Leaf = &ProofNode{
 			Level:   pNode.level,
 			Index:   pNode.index,
 			Value:   pNode.value,
 			IsEmpty: false,
-			Commitment: &crypto.Commit{
-				Salt:  pNode.commitment.Salt,
-				Value: pNode.commitment.Value,
-			},
+			Commitment: pNode.commitment,
 		}
 		if bytes.Equal(nodePointer.(*userLeafNode).index, lookupIndex) {
 			return authPath
@@ -108,33 +101,28 @@ func (m *MerkleTree) Get(lookupIndex []byte) *AuthenticationPath {
 		authPath.Leaf.Value = nil
 		authPath.Leaf.Commitment.Salt = nil
 		return authPath
-	case *emptyNode:
+	case emptyNodeKind:
 		pNode := nodePointer.(*emptyNode)
 		authPath.Leaf = &ProofNode{
 			Level:      pNode.level,
 			Index:      pNode.index,
 			Value:      nil,
 			IsEmpty:    true,
-			Commitment: nil,
 		}
 		return authPath
 	}
 	panic(ErrInvalidTree)
 }
 
-// Set inserts or updates the value of the given index
-// calculated from the key to the tree. It will generate a new commitment
+// Set inserts or updates the key and value of the given index. It will generate a new commitment
 // for the leaf node. In the case of an update, the leaf node's value and
 // commitment are replaced with the new value and newly generated
 // commitment.
 func (m *MerkleTree) Set(index []byte, key string, value []byte) error {
-	commitment, err := crypto.NewCommit([]byte(key), value)
-	if err != nil {
-		return err
-	}
+	commitment := hashed.NewCommit([]byte(key), value)
 	toAdd := userLeafNode{
 		key:        key,
-		value:      append([]byte{}, value...), // make a copy of value
+		value:      copyOfBs(value),
 		index:      index,
 		commitment: commitment,
 	}
@@ -143,15 +131,15 @@ func (m *MerkleTree) Set(index []byte, key string, value []byte) error {
 }
 
 func (m *MerkleTree) insertNode(index []byte, toAdd *userLeafNode) {
-	indexBits := utils.ToBits(index)
+	indexBits := conv.ToBits(index)
 	var depth uint32 // = 0
 	var nodePointer merkleNode
 	nodePointer = m.root
 
 insertLoop:
 	for {
-		switch nodePointer.(type) {
-		case *userLeafNode:
+		switch nodePointer.kind() {
+		case userLeafNodeKind:
 			// reached a "bottom" of the tree.
 			// add a new interior node and push the previous leaf down
 			// then continue insertion
@@ -170,7 +158,7 @@ insertLoop:
 
 			newInteriorNode := newInteriorNode(currentNodeUL.parent, depth, indexBits[:depth])
 
-			direction := utils.GetNthBit(currentNodeUL.index, depth)
+			direction := conv.GetNthBit(currentNodeUL.index, depth)
 			if direction {
 				newInteriorNode.rightChild = currentNodeUL
 			} else {
@@ -178,18 +166,19 @@ insertLoop:
 			}
 			currentNodeUL.level = depth + 1
 			currentNodeUL.parent = newInteriorNode
-			if newInteriorNode.parent.(*interiorNode).leftChild == nodePointer {
-				newInteriorNode.parent.(*interiorNode).leftChild = newInteriorNode
+
+			if parent := newInteriorNode.parent.(*interiorNode); parent.leftChild == nodePointer {
+				parent.leftChild = newInteriorNode
 			} else {
-				newInteriorNode.parent.(*interiorNode).rightChild = newInteriorNode
+				parent.rightChild = newInteriorNode
 			}
 			nodePointer = newInteriorNode
-		case *interiorNode:
+		case interiorNodeKind:
 			currentNodeI := nodePointer.(*interiorNode)
 			direction := indexBits[depth]
 			if direction { // go right
 				currentNodeI.rightHash = nil
-				if currentNodeI.rightChild.isEmpty() {
+				if isEmpty(currentNodeI.rightChild) {
 					currentNodeI.rightChild = toAdd
 					toAdd.level = depth + 1
 					toAdd.parent = currentNodeI
@@ -199,7 +188,7 @@ insertLoop:
 				}
 			} else { // go left
 				currentNodeI.leftHash = nil
-				if currentNodeI.leftChild.isEmpty() {
+				if isEmpty(currentNodeI.leftChild) {
 					currentNodeI.leftChild = toAdd
 					toAdd.level = depth + 1
 					toAdd.parent = currentNodeI
@@ -222,17 +211,17 @@ func (m *MerkleTree) visitLeafNodes(callBack func(*userLeafNode)) {
 }
 
 func visitULNsInternal(nodePtr merkleNode, callBack func(*userLeafNode)) {
-	switch nodePtr.(type) {
-	case *userLeafNode:
+	switch nodePtr.kind() {
+	case userLeafNodeKind:
 		callBack(nodePtr.(*userLeafNode))
-	case *interiorNode:
+	case interiorNodeKind:
 		if leftChild := nodePtr.(*interiorNode).leftChild; leftChild != nil {
 			visitULNsInternal(leftChild, callBack)
 		}
 		if rightChild := nodePtr.(*interiorNode).rightChild; rightChild != nil {
 			visitULNsInternal(rightChild, callBack)
 		}
-	case *emptyNode:
+	case emptyNodeKind:
 		// do nothing
 	default:
 		panic(ErrInvalidTree)
@@ -248,8 +237,8 @@ func (m *MerkleTree) recomputeHash() {
 // and vice versa.
 func (m *MerkleTree) Clone() *MerkleTree {
 	return &MerkleTree{
-		nonce: m.nonce,
+		nonce: copyOfBs(m.nonce),
 		root:  m.root.clone(nil).(*interiorNode),
-		hash:  append([]byte{}, m.hash...),
+		hash:  copyOfBs(m.hash),
 	}
 }

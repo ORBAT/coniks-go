@@ -1,8 +1,8 @@
 package merkletree
 
 import (
-	"github.com/coniks-sys/coniks-go/crypto"
-	"github.com/coniks-sys/coniks-go/utils"
+	"github.com/ORBAT/cloniks/conv"
+	"github.com/ORBAT/cloniks/crypto/hashed"
 )
 
 type node struct {
@@ -23,7 +23,10 @@ type userLeafNode struct {
 	key        string
 	value      []byte
 	index      []byte
-	commitment *crypto.Commit
+	// TODO:
+	//  - epoch when this was added / changed
+	//  - in the future allowsUnsignedChanges & allowsPublicVisibility would be neat
+	commitment hashed.Commit
 }
 
 type emptyNode struct {
@@ -32,22 +35,20 @@ type emptyNode struct {
 }
 
 func newInteriorNode(parent merkleNode, level uint32, prefixBits []bool) *interiorNode {
-	prefixLeft := append([]bool(nil), prefixBits...)
-	prefixLeft = append(prefixLeft, false)
-	prefixRight := append([]bool(nil), prefixBits...)
-	prefixRight = append(prefixRight, true)
+	prefixLeft := copyOfBools(prefixBits, false)
+	prefixRight := copyOfBools(prefixBits, true)
 	leftBranch := &emptyNode{
 		node: node{
 			level: level + 1,
 		},
-		index: utils.ToBytes(prefixLeft),
+		index: conv.ToBytes(prefixLeft),
 	}
 
 	rightBranch := &emptyNode{
 		node: node{
 			level: level + 1,
 		},
-		index: utils.ToBytes(prefixRight),
+		index: conv.ToBytes(prefixRight),
 	}
 	newNode := &interiorNode{
 		node: node{
@@ -56,8 +57,6 @@ func newInteriorNode(parent merkleNode, level uint32, prefixBits []bool) *interi
 		},
 		leftChild:  leftBranch,
 		rightChild: rightBranch,
-		leftHash:   nil,
-		rightHash:  nil,
 	}
 	leftBranch.parent = newNode
 	rightBranch.parent = newNode
@@ -65,8 +64,17 @@ func newInteriorNode(parent merkleNode, level uint32, prefixBits []bool) *interi
 	return newNode
 }
 
+type nodeKind uint8
+
+const (
+	_ nodeKind = iota
+	userLeafNodeKind
+	interiorNodeKind
+	emptyNodeKind
+)
+
 type merkleNode interface {
-	isEmpty() bool
+	kind() nodeKind
 	hash(*MerkleTree) []byte
 	clone(*interiorNode) merkleNode
 }
@@ -82,25 +90,27 @@ func (n *interiorNode) hash(m *MerkleTree) []byte {
 	if n.rightHash == nil {
 		n.rightHash = n.rightChild.hash(m)
 	}
-	return crypto.Digest(n.leftHash, n.rightHash)
+	return hashed.Digest(n.leftHash, n.rightHash)
 }
 
+var emptyLeafBs = []byte{LeafIdentifier}
 func (n *userLeafNode) hash(m *MerkleTree) []byte {
-	return crypto.Digest(
-		[]byte{LeafIdentifier},               // K_leaf
-		[]byte(m.nonce),                      // K_n
-		[]byte(n.index),                      // i
-		[]byte(utils.UInt32ToBytes(n.level)), // l
-		[]byte(n.commitment.Value),           // commit(key|| value)
+	return hashed.Digest(
+		emptyLeafBs,                               // K_leaf
+		[]byte(m.nonce),                     // K_n
+		[]byte(n.index),                     // i
+		[]byte(conv.UInt32ToBytes(n.level)), // l
+		[]byte(n.commitment.Value),          // commit(key|| value)
 	)
 }
 
+var emptyBranchBs = []byte{EmptyBranchIdentifier}
 func (n *emptyNode) hash(m *MerkleTree) []byte {
-	return crypto.Digest(
-		[]byte{EmptyBranchIdentifier},        // K_empty
-		[]byte(m.nonce),                      // K_n
-		[]byte(n.index),                      // i
-		[]byte(utils.UInt32ToBytes(n.level)), // l
+	return hashed.Digest(
+		emptyBranchBs,                               // K_empty
+		[]byte(m.nonce),                     // K_n
+		[]byte(n.index),                     // i
+		[]byte(conv.UInt32ToBytes(n.level)), // l
 	)
 }
 
@@ -110,8 +120,8 @@ func (n *interiorNode) clone(parent *interiorNode) merkleNode {
 			parent: parent,
 			level:  n.level,
 		},
-		leftHash:  append([]byte{}, n.leftHash...),
-		rightHash: append([]byte{}, n.rightHash...),
+		leftHash:  copyOfBs(n.leftHash),
+		rightHash: copyOfBs(n.rightHash),
 	}
 	if n.leftChild == nil ||
 		n.rightChild == nil {
@@ -129,8 +139,8 @@ func (n *userLeafNode) clone(parent *interiorNode) merkleNode {
 			level:  n.level,
 		},
 		key:        n.key,
-		value:      n.value,
-		index:      append([]byte{}, n.index...), // make a copy of index
+		value:      copyOfBs(n.value),
+		index:      copyOfBs(n.index),
 		commitment: n.commitment,
 	}
 }
@@ -141,18 +151,37 @@ func (n *emptyNode) clone(parent *interiorNode) merkleNode {
 			parent: parent,
 			level:  n.level,
 		},
-		index: append([]byte{}, n.index...), // make a copy of index
+		index: copyOfBs(n.index),
 	}
 }
 
-func (n *userLeafNode) isEmpty() bool {
-	return false
+func (*userLeafNode) kind() nodeKind {
+	return userLeafNodeKind
 }
 
-func (n *interiorNode) isEmpty() bool {
-	return false
+func (*interiorNode) kind() nodeKind {
+	return interiorNodeKind
 }
 
-func (n *emptyNode) isEmpty() bool {
-	return true
+func (*emptyNode) kind() nodeKind {
+	return emptyNodeKind
+}
+
+func isEmpty(n merkleNode) bool {
+	return n.kind() == emptyNodeKind
+}
+
+func copyOfBs(bs []byte) (c []byte) {
+	c = make([]byte, len(bs))
+	copy(c, bs)
+	return
+}
+
+func copyOfBools(bs []bool, extra ...bool) (c []bool) {
+	c = make([]bool, len(bs) + len(extra))
+	copy(c, bs)
+	if len(extra) != 0 {
+		copy(c[len(bs):], extra)
+	}
+	return
 }

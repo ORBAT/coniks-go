@@ -3,10 +3,9 @@
 package sign
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"io"
-
-	"golang.org/x/crypto/ed25519"
 )
 
 const (
@@ -49,13 +48,10 @@ func (key PrivateKey) Sign(message []byte) []byte {
 	return ed25519.Sign(ed25519.PrivateKey(key), message)
 }
 
-// Public derives the corresponding public-key from the underlying
-// private-key.
-// It returns the derived key, if possible, and a boolean flag which
-// indicates if the operations to derive the public-key were successful.
-func (key PrivateKey) Public() (PublicKey, bool) {
-	pk, ok := ed25519.PrivateKey(key).Public().(ed25519.PublicKey)
-	return PublicKey(pk), ok
+// Public returns the corresponding public key for the private key.
+func (key PrivateKey) Public() PublicKey {
+	pk := ed25519.PrivateKey(key).Public()
+	return PublicKey(pk.(ed25519.PublicKey))
 }
 
 // Verify verifies a signature sig on message using the underlying

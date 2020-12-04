@@ -3,8 +3,8 @@ package crypto
 import (
 	"bytes"
 
-	"github.com/coniks-sys/coniks-go/crypto/sign"
-	"github.com/coniks-sys/coniks-go/crypto/vrf"
+	"github.com/ORBAT/cloniks/crypto/sign"
+	"github.com/ORBAT/cloniks/crypto/vrf"
 )
 
 // NewStaticTestVRFKey returns a static VRF private key for _tests_.

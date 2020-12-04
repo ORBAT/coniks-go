@@ -3,16 +3,16 @@ package auditor
 import (
 	"testing"
 
-	"github.com/coniks-sys/coniks-go/crypto"
-	"github.com/coniks-sys/coniks-go/protocol"
-	"github.com/coniks-sys/coniks-go/protocol/directory"
+	"github.com/ORBAT/cloniks/crypto"
+	"github.com/ORBAT/cloniks/directory"
+	"github.com/ORBAT/cloniks/protocol"
 )
 
 var staticSigningKey = crypto.NewStaticTestSigningKey()
 
 func TestAuditBadSTRSignature(t *testing.T) {
-	d := directory.NewTestDirectory(t)
-	pk, _ := staticSigningKey.Public()
+	d := directory.NewTestTree(t)
+	pk := staticSigningKey.Public()
 
 	// create a generic auditor state
 	aud := New(pk, d.LatestSTR())
@@ -30,7 +30,7 @@ func TestAuditBadSTRSignature(t *testing.T) {
 
 	// try to audit a new STR with a bad signature:
 	// case signature verification failure in verifySTRConsistency()
-	err := aud.AuditDirectory([]*protocol.DirSTR{str})
+	err := aud.AuditDirectory([]*directory.SignedTreeRoot{str})
 	if err != protocol.CheckBadSignature {
 		t.Error("Expect", protocol.CheckBadSignature, "got", err)
 	}
@@ -38,8 +38,8 @@ func TestAuditBadSTRSignature(t *testing.T) {
 
 // used to be TestVerifyWithError in consistencychecks_test.go
 func TestAuditBadSameEpoch(t *testing.T) {
-	d := directory.NewTestDirectory(t)
-	pk, _ := staticSigningKey.Public()
+	d := directory.NewTestTree(t)
+	pk := staticSigningKey.Public()
 
 	// create a generic auditor state
 	aud := New(pk, d.LatestSTR())
@@ -53,15 +53,15 @@ func TestAuditBadSameEpoch(t *testing.T) {
 
 	// try to audit a diverging STR for the same epoch
 	// case compareWithVerified() == false in checkAgainstVerified()
-	err := aud.AuditDirectory([]*protocol.DirSTR{str})
+	err := aud.AuditDirectory([]*directory.SignedTreeRoot{str})
 	if err != protocol.CheckBadSTR {
 		t.Error("Expect", protocol.CheckBadSTR, "got", err)
 	}
 }
 
 func TestAuditBadNewSTREpoch(t *testing.T) {
-	d := directory.NewTestDirectory(t)
-	pk, _ := staticSigningKey.Public()
+	d := directory.NewTestTree(t)
+	pk := staticSigningKey.Public()
 
 	// create a generic auditor state
 	aud := New(pk, d.LatestSTR())
@@ -79,18 +79,18 @@ func TestAuditBadNewSTREpoch(t *testing.T) {
 
 	// try to audit only STR epoch 4:
 	// case str.Epoch > verifiedSTR.Epoch+1 in checkAgainstVerifiedSTR()
-	err := aud.AuditDirectory([]*protocol.DirSTR{d.LatestSTR()})
+	err := aud.AuditDirectory([]*directory.SignedTreeRoot{d.LatestSTR()})
 	if err != protocol.CheckBadSTR {
 		t.Error("str.Epoch > verified.Epoch+1 - Expect", protocol.CheckBadSTR, "got", err)
 	}
 
 	// try to re-audit only STR epoch 2:
 	// case str.Epoch < verifiedSTR.Epoch in checkAgainstVerifiedSTR()
-	resp := d.GetSTRHistory(&protocol.STRHistoryRequest{
+	resp := d.GetSTRHistory(&directory.STRHistoryRequest{
 		StartEpoch: uint64(2),
 		EndEpoch:   uint64(2)})
 
-	strs := resp.DirectoryResponse.(*protocol.STRHistoryRange)
+	strs := resp.DirectoryResponse.(*directory.STRHistoryRange)
 	err = aud.AuditDirectory(strs.STR)
 	if err != protocol.CheckBadSTR {
 		t.Error("str.Epoch < verified.Epoch - Expect", protocol.CheckBadSTR, "got", err)
@@ -98,8 +98,8 @@ func TestAuditBadNewSTREpoch(t *testing.T) {
 }
 
 func TestAuditMalformedSTRRange(t *testing.T) {
-	d := directory.NewTestDirectory(t)
-	pk, _ := staticSigningKey.Public()
+	d := directory.NewTestTree(t)
+	pk := staticSigningKey.Public()
 
 	// create a generic auditor state
 	aud := New(pk, d.LatestSTR())
@@ -115,7 +115,7 @@ func TestAuditMalformedSTRRange(t *testing.T) {
 		d.Update()
 	}
 
-	resp := d.GetSTRHistory(&protocol.STRHistoryRequest{
+	resp := d.GetSTRHistory(&directory.STRHistoryRequest{
 		StartEpoch: uint64(4),
 		EndEpoch:   uint64(d.LatestSTR().Epoch)})
 
@@ -123,7 +123,7 @@ func TestAuditMalformedSTRRange(t *testing.T) {
 		t.Fatalf("Error occurred getting the latest STR from the directory: %s", resp.Error)
 	}
 
-	strs := resp.DirectoryResponse.(*protocol.STRHistoryRange)
+	strs := resp.DirectoryResponse.(*directory.STRHistoryRange)
 	// make a malformed range
 	strs.STR[2] = nil
 

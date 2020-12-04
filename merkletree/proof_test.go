@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coniks-sys/coniks-go/utils"
+	"github.com/ORBAT/cloniks/conv"
 )
 
 type mockProof struct {
@@ -74,8 +74,8 @@ func setupTestProofs(t *testing.T) (*MerkleTree, []*mockProof) {
 		absentIndex = staticVRFKey.Compute([]byte(absentKey))
 		proof := m.Get(absentIndex)
 		// assert these indices share the same prefix in the first bit
-		if bytes.Equal(utils.ToBytes(utils.ToBits(sharedPrefix)[:proof.Leaf.Level]),
-			utils.ToBytes(utils.ToBits(absentIndex)[:proof.Leaf.Level])) {
+		if bytes.Equal(conv.ToBytes(conv.ToBits(sharedPrefix)[:proof.Leaf.Level]),
+			conv.ToBytes(conv.ToBits(absentIndex)[:proof.Leaf.Level])) {
 			break
 		}
 	}
@@ -91,10 +91,10 @@ func TestVerifyProof(t *testing.T) {
 	for _, tt := range tests {
 		proof := m.Get(tt.index)
 		if got, want := proof.ProofType(), tt.want; got != want {
-			t.Error("TestVerifyProof() failed with tuple(", tt.key, tt.value, ")")
+			t.Error("TestVerifyProof() Get failed with tuple(", tt.key, tt.value, tt.want, ")")
 		}
-		if proof.Verify([]byte(tt.key), tt.value, m.hash) != nil {
-			t.Error("TestVerifyProof() failed with tuple(", tt.key, tt.value, ")")
+		if err:= proof.Verify([]byte(tt.key), tt.value, m.hash); err != nil {
+			t.Error("TestVerifyProof() Verify failed with tuple(", tt.key, tt.value, tt.want, "): ", err)
 		}
 	}
 }

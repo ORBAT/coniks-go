@@ -4,39 +4,40 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/coniks-sys/coniks-go/utils"
-	"golang.org/x/crypto/sha3"
+	"github.com/ORBAT/cloniks/conv"
+	"github.com/ORBAT/cloniks/crypto/hashed"
 )
 
-// TODO: When #178 is merged, 3 tests below should be removed.
+// TODO: this is brittle as shit and dependent on exact bits returned by the VRF.
 func TestOneEntry(t *testing.T) {
 	m, err := NewMerkleTree()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var commit [32]byte
-	var expect [32]byte
+	var commit [hashed.HashSizeByte]byte
+	var expect [hashed.HashSizeByte]byte
 
 	key := "key"
 	val := []byte("value")
 	index := staticVRFKey.Compute([]byte(key))
+	t.Logf("idx %x", index)
 	if err := m.Set(index, key, val); err != nil {
 		t.Fatal(err)
 	}
 	m.recomputeHash()
 
 	// Check empty node hash
-	h := sha3.NewShake128()
+	h := hashed.New()
 	h.Write([]byte{EmptyBranchIdentifier})
 	h.Write(m.nonce)
-	h.Write(utils.ToBytes([]bool{true}))
-	h.Write(utils.UInt32ToBytes(1))
-	h.Read(expect[:])
-	if !bytes.Equal(m.root.rightHash, expect[:]) {
-		t.Error("Wrong righ hash!",
+	h.Write(conv.ToBytes([]bool{false}))
+	h.Write(conv.UInt32ToBytes(1))
+	h.Digest().Read(expect[:])
+	if !bytes.Equal(m.root.leftHash, expect[:]) {
+		t.Error("Wrong left hash!",
 			"expected", expect,
-			"get", m.root.rightHash)
+			"get", m.root.leftHash)
 	}
 
 	r := m.Get(index)
@@ -50,22 +51,23 @@ func TestOneEntry(t *testing.T) {
 	}
 
 	// Check leaf node hash
-	h.Reset()
-	h.Write(r.Leaf.Commitment.Salt)
+	h = hashed.NewKeyed(hashed.CommitHashCtx, r.Leaf.Commitment.Salt)
 	h.Write([]byte(key))
 	h.Write(val)
-	h.Read(commit[:])
+	h.Digest().Read(commit[:])
 
-	h.Reset()
+	t.Log(commit[:])
+
+	h = hashed.New()
 	h.Write([]byte{LeafIdentifier})
 	h.Write(m.nonce)
 	h.Write(index)
-	h.Write(utils.UInt32ToBytes(1))
+	h.Write(conv.UInt32ToBytes(1))
 	h.Write(commit[:])
-	h.Read(expect[:])
+	h.Digest().Read(expect[:])
 
-	if !bytes.Equal(m.root.leftHash, expect[:]) {
-		t.Error("Wrong left hash!",
+	if !bytes.Equal(m.root.rightHash, expect[:]) {
+		t.Error("Wrong right hash!",
 			"expected", expect,
 			"get", m.root.leftHash)
 	}

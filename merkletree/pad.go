@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/coniks-sys/coniks-go/crypto"
-	"github.com/coniks-sys/coniks-go/crypto/sign"
-	"github.com/coniks-sys/coniks-go/crypto/vrf"
+	"github.com/ORBAT/cloniks/crypto/hashed"
+	"github.com/ORBAT/cloniks/crypto/sign"
+	"github.com/ORBAT/cloniks/crypto/vrf"
 )
 
 var (
@@ -16,8 +16,9 @@ var (
 	ErrSTRNotFound = errors.New("[merkletree] STR not found")
 )
 
-// A PAD represents a persistent authenticated dictionary,
-// and includes the underlying MerkleTree, cached snapshots,
+// A PAD represents a persistent authenticated dictionary. It
+
+// It includes the underlying MerkleTree, cached snapshots,
 // the latest SignedTreeRoot, two key pairs for signing and VRF
 // computation, and additional developer-specified AssocData.
 type PAD struct {
@@ -56,14 +57,14 @@ func (pad *PAD) signTreeRoot(epoch uint64) {
 	var prevHash []byte
 	if pad.latestSTR == nil {
 		var err error
-		prevHash, err = crypto.MakeRand()
+		prevHash = hashed.RandSlice()
 		if err != nil {
 			// panic here since if there is an error, it
 			// will break the PAD.
 			panic(err)
 		}
 	} else {
-		prevHash = crypto.Digest(pad.latestSTR.Signature)
+		prevHash = hashed.Digest(pad.latestSTR.Signature)
 	}
 	pad.tree.recomputeHash()
 	m := pad.tree.Clone()

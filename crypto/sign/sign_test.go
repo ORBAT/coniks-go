@@ -15,10 +15,7 @@ func TestVerifySignature(t *testing.T) {
 	message := []byte("test message")
 	sig := key.Sign(message)
 
-	pk, ok := key.Public()
-	if !ok {
-		t.Errorf("bad PK?")
-	}
+	pk := key.Public()
 
 	if !pk.Verify(message, sig) {
 		t.Errorf("valid signature rejected")
@@ -36,10 +33,7 @@ func TestConvertPrivateKeyToPublicKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pk, ok := sk.Public()
-	if !ok {
-		t.Fatal("Couldn't obtain public key.")
-	}
+	pk := sk.Public()
 	if !bytes.Equal(pk, sk[32:]) {
 		t.Fatal("Raw byte respresentation doesn't match public key.")
 	}

@@ -7,26 +7,27 @@ package auditor
 import (
 	"reflect"
 
-	"github.com/coniks-sys/coniks-go/crypto/sign"
-	"github.com/coniks-sys/coniks-go/protocol"
+	"github.com/ORBAT/cloniks/crypto/sign"
+	"github.com/ORBAT/cloniks/directory"
+	"github.com/ORBAT/cloniks/protocol"
 )
 
 // Auditor provides a generic interface allowing different
 // auditor types to implement specific auditing functionality.
 type Auditor interface {
-	AuditDirectory([]*protocol.DirSTR) error
+	AuditDirectory([]*directory.SignedTreeRoot) error
 }
 
 // AudState verifies the hash chain of a specific directory.
 type AudState struct {
 	signKey     sign.PublicKey
-	verifiedSTR *protocol.DirSTR
+	verifiedSTR *directory.SignedTreeRoot
 }
 
 var _ Auditor = (*AudState)(nil)
 
 // New instantiates a new auditor state from a persistance storage.
-func New(signKey sign.PublicKey, verified *protocol.DirSTR) *AudState {
+func New(signKey sign.PublicKey, verified *directory.SignedTreeRoot) *AudState {
 	a := &AudState{
 		signKey:     signKey,
 		verifiedSTR: verified,
@@ -41,18 +42,18 @@ func (a *AudState) Verify(message, sig []byte) bool {
 }
 
 // VerifiedSTR returns the newly verified STR.
-func (a *AudState) VerifiedSTR() *protocol.DirSTR {
+func (a *AudState) VerifiedSTR() *directory.SignedTreeRoot {
 	return a.verifiedSTR
 }
 
 // Update updates the auditor's verifiedSTR to newSTR
-func (a *AudState) Update(newSTR *protocol.DirSTR) {
+func (a *AudState) Update(newSTR *directory.SignedTreeRoot) {
 	a.verifiedSTR = newSTR
 }
 
 // compareWithVerified checks whether the received STR is the same as
 // the verified STR in the AudState using reflect.DeepEqual().
-func (a *AudState) compareWithVerified(str *protocol.DirSTR) error {
+func (a *AudState) compareWithVerified(str *directory.SignedTreeRoot) error {
 	if reflect.DeepEqual(a.verifiedSTR, str) {
 		return nil
 	}
@@ -64,9 +65,9 @@ func (a *AudState) compareWithVerified(str *protocol.DirSTR) error {
 // The signKey param either comes from a client's
 // pinned signing key in its consistency state,
 // or an auditor's pinned signing key in its history.
-func (a *AudState) verifySTRConsistency(prevSTR, str *protocol.DirSTR) error {
+func (a *AudState) verifySTRConsistency(prevSTR, str *directory.SignedTreeRoot) error {
 	// verify STR's signature
-	if !a.signKey.Verify(str.Serialize(), str.Signature) {
+	if !a.signKey.Verify(str.Bytes(), str.Signature) {
 		return protocol.CheckBadSignature
 	}
 	if str.VerifyHashChain(prevSTR) {
@@ -86,7 +87,7 @@ func (a *AudState) verifySTRConsistency(prevSTR, str *protocol.DirSTR) error {
 // or the appropriate consistency check error if any of the checks fail,
 // or str's epoch is anything other than the same or one ahead of
 // a.verifiedSTR.
-func (a *AudState) CheckSTRAgainstVerified(str *protocol.DirSTR) error {
+func (a *AudState) CheckSTRAgainstVerified(str *directory.SignedTreeRoot) error {
 	// FIXME: check whether the STR was issued on time and whatnot.
 	// Maybe it has something to do w/ #81 and client
 	// transitioning between epochs.
@@ -113,7 +114,7 @@ func (a *AudState) CheckSTRAgainstVerified(str *protocol.DirSTR) error {
 // of a directory's STRs. It begins by verifying the STR consistency between
 // the given prevSTR and the first STR in the given range, and
 // then verifies the consistency between each subsequent STR pair.
-func (a *AudState) VerifySTRRange(prevSTR *protocol.DirSTR, strs []*protocol.DirSTR) error {
+func (a *AudState) VerifySTRRange(prevSTR *directory.SignedTreeRoot, strs []*directory.SignedTreeRoot) error {
 	prev := prevSTR
 	for i := 0; i < len(strs); i++ {
 		str := strs[i]
@@ -138,7 +139,7 @@ func (a *AudState) VerifySTRRange(prevSTR *protocol.DirSTR, strs []*protocol.Dir
 // range if the message contains more than one STR.
 // AuditDirectory() returns the appropriate consistency check error
 // if any of the checks fail, or nil if the checks pass.
-func (a *AudState) AuditDirectory(strs []*protocol.DirSTR) error {
+func (a *AudState) AuditDirectory(strs []*directory.SignedTreeRoot) error {
 	// validate strs
 	if len(strs) == 0 {
 		return protocol.ErrMalformedMessage

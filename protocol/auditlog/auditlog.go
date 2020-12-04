@@ -6,16 +6,17 @@
 package auditlog
 
 import (
-	"github.com/coniks-sys/coniks-go/crypto"
-	"github.com/coniks-sys/coniks-go/crypto/sign"
-	"github.com/coniks-sys/coniks-go/protocol"
-	"github.com/coniks-sys/coniks-go/protocol/auditor"
+	"github.com/ORBAT/cloniks/crypto/hashed"
+	"github.com/ORBAT/cloniks/crypto/sign"
+	"github.com/ORBAT/cloniks/directory"
+	"github.com/ORBAT/cloniks/protocol"
+	"github.com/ORBAT/cloniks/protocol/auditor"
 )
 
 type directoryHistory struct {
 	*auditor.AudState
 	addr      string
-	snapshots map[uint64]*protocol.DirSTR
+	snapshots map[uint64]*directory.SignedTreeRoot
 }
 
 // A ConiksAuditLog maintains the histories
@@ -26,17 +27,17 @@ type directoryHistory struct {
 // public signing key enabling the auditor to verify the corresponding
 // signed tree roots, and a list with all observed snapshots in
 // chronological order.
-type ConiksAuditLog map[[crypto.HashSizeByte]byte]*directoryHistory
+type ConiksAuditLog map[[hashed.HashSizeByte]byte]*directoryHistory
 
 // caller validates that initSTR is for epoch 0.
 func newDirectoryHistory(addr string,
 	signKey sign.PublicKey,
-	initSTR *protocol.DirSTR) *directoryHistory {
+	initSTR *directory.SignedTreeRoot) *directoryHistory {
 	a := auditor.New(signKey, initSTR)
 	h := &directoryHistory{
 		AudState:  a,
 		addr:      addr,
-		snapshots: make(map[uint64]*protocol.DirSTR),
+		snapshots: make(map[uint64]*directory.SignedTreeRoot),
 	}
 	h.updateVerifiedSTR(initSTR)
 	return h
@@ -44,7 +45,7 @@ func newDirectoryHistory(addr string,
 
 // updateVerifiedSTR inserts the latest verified STR into a directory
 // history; assumes the STRs have been validated by the caller.
-func (h *directoryHistory) updateVerifiedSTR(newVerified *protocol.DirSTR) {
+func (h *directoryHistory) updateVerifiedSTR(newVerified *directory.SignedTreeRoot) {
 	h.Update(newVerified)
 	h.snapshots[newVerified.Epoch] = newVerified
 }
@@ -52,7 +53,7 @@ func (h *directoryHistory) updateVerifiedSTR(newVerified *protocol.DirSTR) {
 // insertRange inserts the given range of STRs snaps
 // into the directoryHistory h.
 // insertRange() assumes that snaps has been audited by Audit().
-func (h *directoryHistory) insertRange(snaps []*protocol.DirSTR) {
+func (h *directoryHistory) insertRange(snaps []*directory.SignedTreeRoot) {
 	for i := 0; i < len(snaps); i++ {
 		h.updateVerifiedSTR(snaps[i])
 	}
@@ -67,12 +68,12 @@ func (h *directoryHistory) insertRange(snaps []*protocol.DirSTR) {
 // finally updates the snapshots if the checks pass.
 // Audit() is called when an auditor receives new STRs
 // from a specific directory.
-func (h *directoryHistory) Audit(msg *protocol.Response) error {
+func (h *directoryHistory) Audit(msg *directory.Response) error {
 	if err := msg.Validate(); err != nil {
 		return err
 	}
 
-	strs := msg.DirectoryResponse.(*protocol.STRHistoryRange)
+	strs := msg.DirectoryResponse.(*directory.STRHistoryRange)
 
 	// audit the STRs
 	// if strs.STR is somehow malformed or invalid (e.g. strs.STR
@@ -94,12 +95,12 @@ func (h *directoryHistory) Audit(msg *protocol.Response) error {
 // log; the auditor will add an entry for each CONIKS directory
 // the first time it observes an STR for that directory.
 func New() ConiksAuditLog {
-	return make(map[[crypto.HashSizeByte]byte]*directoryHistory)
+	return make(map[[hashed.HashSizeByte]byte]*directoryHistory)
 }
 
 // set associates the given directoryHistory with the directory identifier
 // (i.e. the hash of the initial STR) dirInitHash in the ConiksAuditLog.
-func (l ConiksAuditLog) set(dirInitHash [crypto.HashSizeByte]byte,
+func (l ConiksAuditLog) set(dirInitHash [hashed.HashSizeByte]byte,
 	dirHistory *directoryHistory) {
 	l[dirInitHash] = dirHistory
 }
@@ -108,7 +109,7 @@ func (l ConiksAuditLog) set(dirInitHash [crypto.HashSizeByte]byte,
 // dirInitHash from the ConiksAuditLog.
 // Get() also returns a boolean indicating whether the requested dirInitHash
 // is present in the log.
-func (l ConiksAuditLog) get(dirInitHash [crypto.HashSizeByte]byte) (*directoryHistory, bool) {
+func (l ConiksAuditLog) get(dirInitHash [hashed.HashSizeByte]byte) (*directoryHistory, bool) {
 	h, ok := l[dirInitHash]
 	return h, ok
 }
@@ -124,7 +125,7 @@ func (l ConiksAuditLog) get(dirInitHash [crypto.HashSizeByte]byte) (*directoryHi
 // InitHistory() returns an ErrAuditLog if the auditor attempts to create
 // a new history for a known directory, and nil otherwise.
 func (l ConiksAuditLog) InitHistory(addr string, signKey sign.PublicKey,
-	snaps []*protocol.DirSTR) error {
+	snaps []*directory.SignedTreeRoot) error {
 	// make sure we're getting an initial STR at the very least
 	if len(snaps) < 1 || snaps[0].Epoch != 0 {
 		return protocol.ErrMalformedMessage
@@ -171,23 +172,23 @@ func (l ConiksAuditLog) InitHistory(addr string, signKey sign.PublicKey,
 // If the auditor doesn't have any history entries for the requested CONIKS
 // directory, GetObservedSTRs() returns a
 // message.NewErrorResponse(ReqUnknownDirectory).
-func (l ConiksAuditLog) GetObservedSTRs(req *protocol.AuditingRequest) *protocol.Response {
+func (l ConiksAuditLog) GetObservedSTRs(req *directory.AuditingRequest) *directory.Response {
 	// make sure we have a history for the requested directory in the log
 	h, ok := l.get(req.DirInitSTRHash)
 	if !ok {
-		return protocol.NewErrorResponse(protocol.ReqUnknownDirectory)
+		return directory.NewErrorResponse(protocol.ReqUnknownDirectory)
 	}
 
 	// make sure the request is well-formed
 	if req.EndEpoch > h.VerifiedSTR().Epoch || req.StartEpoch > req.EndEpoch {
-		return protocol.NewErrorResponse(protocol.ErrMalformedMessage)
+		return directory.NewErrorResponse(protocol.ErrMalformedMessage)
 	}
 
-	var strs []*protocol.DirSTR
+	var strs []*directory.SignedTreeRoot
 	for ep := req.StartEpoch; ep <= req.EndEpoch; ep++ {
 		str := h.snapshots[ep]
 		strs = append(strs, str)
 	}
 
-	return protocol.NewSTRHistoryRange(strs)
+	return directory.NewSTRHistoryRange(strs)
 }

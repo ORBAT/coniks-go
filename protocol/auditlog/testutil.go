@@ -3,25 +3,23 @@ package auditlog
 import (
 	"testing"
 
-	"github.com/coniks-sys/coniks-go/crypto"
-	"github.com/coniks-sys/coniks-go/protocol"
-	"github.com/coniks-sys/coniks-go/protocol/directory"
+	"github.com/ORBAT/cloniks/crypto"
+	"github.com/ORBAT/cloniks/directory"
 )
 
 var staticSigningKey = crypto.NewStaticTestSigningKey()
 
 // NewTestAuditLog creates a ConiksAuditLog and corresponding
-// ConiksDirectory used for testing auditor-side CONIKS operations.
+// Tree used for testing auditor-side CONIKS operations.
 // The new audit log can be initialized with the number of epochs
 // indicating the length of the directory history with which to
 // initialize the log; if numEpochs > 0, the history contains numEpochs+1
 // STRs as it always includes the STR after the last directory update
-func NewTestAuditLog(t *testing.T, numEpochs int) (
-	*directory.ConiksDirectory, ConiksAuditLog, []*protocol.DirSTR) {
-	d := directory.NewTestDirectory(t)
+func NewTestAuditLog(t *testing.T, numEpochs int) (*directory.Tree, ConiksAuditLog, []*directory.SignedTreeRoot) {
+	d := directory.NewTestTree(t)
 	aud := New()
 
-	var snaps []*protocol.DirSTR
+	var snaps []*directory.SignedTreeRoot
 	for ep := 0; ep < numEpochs; ep++ {
 		snaps = append(snaps, d.LatestSTR())
 		d.Update()
@@ -29,7 +27,7 @@ func NewTestAuditLog(t *testing.T, numEpochs int) (
 	// always include the actual latest STR
 	snaps = append(snaps, d.LatestSTR())
 
-	pk, _ := staticSigningKey.Public()
+	pk := staticSigningKey.Public()
 	err := aud.InitHistory("test-server", pk, snaps)
 	if err != nil {
 		t.Fatalf("Error inserting a new history with %d STRs", numEpochs+1)

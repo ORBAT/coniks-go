@@ -1,6 +1,7 @@
 package merkletree
 
 import (
+	"strconv"
 	"testing"
 )
 
@@ -13,10 +14,10 @@ func TestVerifyHashChain(t *testing.T) {
 	}
 
 	savedSTR := pad.LatestSTR()
-	pk, _ := pad.signKey.Public()
+	pk := pad.signKey.Public()
 
 	for i := uint64(1); i < N; i++ {
-		key := keyPrefix + string(i)
+		key := keyPrefix + strconv.FormatUint(i, 10)
 		value := append(valuePrefix, byte(i))
 		if err := pad.Set(key, value); err != nil {
 			t.Fatal(err)
@@ -25,7 +26,7 @@ func TestVerifyHashChain(t *testing.T) {
 
 		// verify STR signature
 		str := pad.LatestSTR()
-		if !pk.Verify(str.Serialize(), str.Signature) {
+		if !pk.Verify(str.Bytes(), str.Signature) {
 			t.Fatal("Invalid STR signature at epoch", i)
 		}
 

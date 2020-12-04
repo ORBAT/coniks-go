@@ -34,6 +34,6 @@ This Merkle prefix tree implementation is also privacy-preserving:
 the lookup index is a cryptographic transformation (VRF)
 of the search key, and values are concealed using cryptographic commitments.
 The VRF, commitment scheme and hash operations are provided by our crypto
-package (see https://godoc.org/github.com/coniks-sys/coniks-go/crypto).
+package (see https://godoc.org/github.com/ORBAT/cloniks/crypto).
 */
 package merkletree
